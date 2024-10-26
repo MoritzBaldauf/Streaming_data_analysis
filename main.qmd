@@ -4,23 +4,116 @@ format: pdf
 editor: visual
 ---
 
-## Quarto
+## Todos:
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+# 1) Briefly **describe** the data set (e.g., how many customers, what information are available, how do important variables look like).
 
-## Running Code
+\
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
-```{r}
-print("Test")
-```
-
-You can add options to executable code like this
+\
 
 ```{r}
-#| echo: false
-2 * 2
+library(ggplot2)
+library(ggcorrplot)
+library(ggpubr)
+library(rpart)
+library(partykit)
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+```{r}
+set.seed(1234)
+```
+
+##  Running Code
+
+```{r}
+load("Group1_streaming_ds.rda")
+head(streaming_ds)
+str(streaming_ds)
+summary(streaming_ds)
+
+streaming_ds["few hrs"] <- as.factor(streaming_ds$`few hrs`) # change column from boolean to factor 
+```
+
+# 2. **Identify the relevant variables** that would help you to segment/cluster/classify the users/customers and justify your choice. 
+
+## Correlation Matrix
+
+```{r}
+streaming_only_num <- streaming_ds[sapply(streaming_ds, is.numeric)] # only get columns that are numberic
+
+ggcorrplot(cor(streaming_only_num),
+           lab = TRUE,               # Show correlation values
+           lab_size = 3,             # Fix text size
+           digits = 2,               # Number of decimal places
+           method = "square")       # Square cells
+```
+
+No strong correlation for any of the numeric data points. However we have a few combinations which might be intersting to investigate further. Mainly: Income\~Age; Months\~Age (kind of obvious); Months\~Stopped
+
+### Quick Viz for Columns against each other
+
+```{r}
+pairs(streaming_ds)
+```
+
+## Scatter plot for Income and age
+
+```{r}
+Age_income <- ggplot(streaming_ds, aes(x= age, y= income)) + 
+  geom_point() + 
+  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85))
+
+
+Months_age <- ggplot(streaming_ds, aes(x= age, y= months)) + 
+  geom_point() + 
+  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85))
+
+Months_stopped <- ggplot(streaming_ds, aes(x= months, y= stopped)) + 
+  geom_point() + 
+  scale_x_continuous(breaks= c(6, 12, 18, 24, 30, 36, 42))
+
+Age_stopped <- ggplot(streaming_ds, aes(x=age, y = stopped)) + 
+  geom_point() + 
+  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85))
+
+
+ggarrange(Age_income, Months_age, Months_stopped, Age_stopped, labels = c("Age ~ Income", "Months ~ Age", "Stopped ~ Months", "Age ~ stopped"), font.label = list(size=10), col= 1, nrow = 4)
+```
+
+Note: From the Months \~ Age plot it seem like Age and Months are not both describing the Age of the User, since this would mean a linear relationship
+
+-\> Months is maybe the time of the subscription
+
+### Income and Stopped
+
+```{r}
+ggplot(streaming_ds, aes(income, stopped)) +
+  geom_point()
+```
+
+## Using a decision tree
+
+### Pruning 
+
+```{r}
+full_tree <- rpart(stopped ~. , data= streaming_ds, control = list(cp=0.001))
+
+printcp(full_tree)
+rpart::plotcp(full_tree)
+```
+
+### Pruned tree
+
+From the decision tree it seems that the most important variables are the few_hrs, months, and age.
+
+```{r}
+pruned_tree <- prune(full_tree, cp = full_tree$cptable[5, "CP"])
+plot(as.party(pruned_tree))
+```
+
+# 3) **Test** several models and **compare** them. **Consider the best approach** for your problem - clustering, classification, anything else?
+
+# 4) **Justify your selection** of customers / respondents - what makes the group(s) special?
+
+# 5) Do the data reveal **how do the chosen customers differ** from the others?
