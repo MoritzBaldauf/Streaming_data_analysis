@@ -24,7 +24,7 @@ library(partykit)
 set.seed(1234)
 ```
 
-##  Running Code
+## Running Code
 
 ```{r}
 load("Group1_streaming_ds.rda")
@@ -87,6 +87,8 @@ Note: From the Months \~ Age plot it seem like Age and Months are not both descr
 
 ### Income and Stopped
 
+hallo
+
 ```{r}
 ggplot(streaming_ds, aes(income, stopped)) +
   geom_point()
@@ -94,7 +96,7 @@ ggplot(streaming_ds, aes(income, stopped)) +
 
 ## Using a decision tree
 
-### Pruning 
+### Pruning
 
 ```{r}
 full_tree <- rpart(stopped ~. , data= streaming_ds, control = list(cp=0.001))
@@ -114,6 +116,12 @@ plot(as.party(pruned_tree))
 
 # 3) **Test** several models and **compare** them. **Consider the best approach** for your problem - clustering, classification, anything else?
 
+-\> Predict if a customer is a Premium member or not Additionally predict number of stopped streams
+
+Logistic Regression
+
 # 4) **Justify your selection** of customers / respondents - what makes the group(s) special?
+
+-\> Clustering to find likely customers that are not yet premium
 
 # 5) Do the data reveal **how do the chosen customers differ** from the others?
