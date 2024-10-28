@@ -18,6 +18,8 @@ library(ggcorrplot)
 library(ggpubr)
 library(rpart)
 library(partykit)
+library(dplyr)
+library(gridExtra)
 ```
 
 ```{r}
@@ -123,5 +125,57 @@ Logistic Regression
 # 4) **Justify your selection** of customers / respondents - what makes the group(s) special?
 
 -\> Clustering to find likely customers that are not yet premium
+
+```{r}
+clustering_data <- streaming_ds %>%
+  select(stopped, age, income, premium, months, `few hrs`) %>% # select relvant columns for sub df
+  mutate(few_hrs = as.numeric(`few hrs`)) %>% # transform few hrs to numeric 
+  select(-`few hrs`) %>% # remove old few hrs column 
+  scale() # scale for clustering
+
+clustering_data <- as.data.frame(clustering_data)
+
+
+str(clustering_data)
+```
+
+```{r}
+kmeans_results <- kmeans(clustering_data, centers = 3, nstart = 10)
+
+clustering_df$Cluster <- as.factor(kmeans_results$cluster)
+
+```
+
+```{r}
+p2 <- ggplot(clustering_df, aes(x = income, y = months , color = Cluster)) +
+  geom_point(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Clusters: Months vs Income")
+
+p3 <- ggplot(clustering_df, aes(x = age, y = income, color = Cluster)) +
+  geom_point(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Clusters: Age vs Income")
+
+p2
+```
+
+```{r}
+grid.arrange(p2, p3, ncol= 2)
+```
+
+```{r}
+ggplot(clustering_data, aes(x = months, y = income, fill = factor(premium))) +
+  geom_point(shape = 23, alpha = 0.6, size = 3) +
+  scale_fill_manual(values = c("0" = "Blue", "1" = "Red"),
+                    labels = c("Non-Premium", "Premium"),
+                    name = "Subscription Status") +
+  labs(
+    title = "Income Distribution by Subscription Duration",
+    x = "Months of Subscription",
+    y = "Income"
+  ) +
+  theme_minimal()
+```
 
 # 5) Do the data reveal **how do the chosen customers differ** from the others?
