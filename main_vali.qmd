@@ -1,0 +1,747 @@
+---
+title: "Main"
+format: pdf
+editor: visual
+---
+
+## Todos:
+
+# 1) Briefly **describe** the data set (e.g., how many customers, what information are available, how do important variables look like).
+
+\
+
+\
+
+```{r}
+library(ggplot2)
+library(ggcorrplot)
+library(ggpubr)
+library(rpart)
+library(partykit)
+library(dplyr)
+library(gridExtra)
+library(caret)
+library(e1071)
+library(ranger)
+```
+
+```{r}
+set.seed(1234)
+```
+
+## Running Code
+
+```{r}
+load("Group1_streaming_ds.rda")
+```
+
+# 2. **Identify the relevant variables** that would help you to segment/cluster/classify the users/customers and justify your choice.
+
+### 
+
+# 3) **Test** several models and **compare** them. **Consider the best approach** for your problem - clustering, classification, anything else?
+
+-\> Predict if a customer is a Premium member or not Additionally predict number of stopped streams
+
+Logistic Regression
+
+# 4) **Justify your selection** of customers / respondents - what makes the group(s) special?
+
+-\> Clustering to find likely customers that are not yet premium
+
+```{r}
+clustering_data  <- streaming_ds %>%
+  select(stopped, age, income, premium, device, `living area`, months, `few hrs`) %>% 
+  mutate(few_hrs = as.numeric(`few hrs`)) %>%
+  mutate(device = as.numeric(device)) %>%
+  mutate(living_area = as.numeric(`living area`)) %>%
+  select(-`few hrs`) %>%
+  select(-`living area`) %>%
+  scale() %>%
+  as.data.frame()
+
+clustering_data_no_premium <- streaming_ds %>%
+  filter(premium == 0) %>%
+  select(stopped, age, income, premium, device, `living area`, months, `few hrs`) %>%
+  mutate(few_hrs = as.numeric(`few hrs`)) %>%
+  mutate(device = as.numeric(device)) %>%
+  mutate(living_area = as.numeric(`living area`)) %>%
+  select(-`few hrs`) %>%
+  select(-`living area`) %>%
+  select(-premium) %>% # drop because scaling
+  scale() %>%
+  as.data.frame()
+
+
+
+str(clustering_data)
+str(clustering_data_no_premium)
+```
+
+### Define a function to unscale the data frame at a later point
+
+```{r}
+# 
+# unscale <- function(scaled_data, original_data) {
+#   # Get column names from scaled data
+#   scaled_cols <- colnames(scaled_data)
+#   
+#   # Initialize result dataframe
+#   unscaled_data <- scaled_data
+#   
+#   # Process each column
+#   for(col in scaled_cols) {
+#     if(col %in% colnames(original_data)) {  # Check if column exists in original data
+#       # Calculate original mean and sd
+#       orig_mean <- mean(original_data[[col]], na.rm = TRUE)
+#       orig_sd <- sd(original_data[[col]], na.rm = TRUE)
+#       
+#       # Reverse the scaling: x_orig = (x_scaled * sd) + mean
+#       unscaled_data[[col]] <- scaled_data[[col]] * orig_sd + orig_mean
+#     }
+#   }
+#   
+#   return(unscaled_data)
+# }
+# 
+# df2 <- unscale(unscaled_clustered_data, original_df)
+```
+
+### Getting number of clusters using the elbow method
+
+```{r}
+
+elbow_method <- function(n_clusters, data) {
+  wss <- numeric(n_clusters)
+  for (i in 1:n_clusters) {
+    km <- kmeans(data, centers = i, nstart = 20)
+    wss[i] <- km$tot.withinss
+  }
+  return(wss)
+}
+
+
+wss_values_full <- elbow_method(10, clustering_data)
+wss_values_no_premium <- elbow_method(10, clustering_data_no_premium)
+```
+
+```{r}
+plot_data_full <- data.frame(k = 1:10, wss = wss_values_full) #turn wss values into df for plotting
+
+plot_data_no_premium <- data.frame(k = 1:10, wss = wss_values_no_premium)
+
+p1 <- ggplot(plot_data_full, aes(x = k, y = wss)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Elbow Method for Optimal k",
+       x = "Number of Clusters (k)",
+       y = "Total Within Sum of Squares") +
+  theme_minimal()
+
+p2 <- ggplot(plot_data_no_premium, aes(x = k, y = wss)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Elbow Method for Optimal k",
+       x = "Number of Clusters (k)",
+       y = "Total Within Sum of Squares") +
+  theme_minimal()
+
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+We decide to proceed with 4 clusters as the Plot shows a steep decline till the 4th point. Afterwards the decline falltens of, signaling us that 4 clusters would give us the best clarity while maintaining simplicity for the visualization.
+
+### Performing the k-means clustering
+
+```{r}
+kmeans_full <- kmeans(clustering_data, centers = 5, nstart = 10)
+kmeans_no_premium <- kmeans(clustering_data_no_premium, centers = 6, nstart = 10)
+
+
+clustering_data$Cluster <- as.factor(kmeans_full$cluster)
+clustering_data_no_premium$Cluster <- as.factor(kmeans_no_premium$cluster)
+```
+
+```{r}
+p3 <- ggplot(clustering_data, aes(x = months, y =income , color = Cluster)) +
+    geom_point(alpha = 0.6) +
+    labs(title = "Clusters for full customer base") +
+    theme_minimal()
+
+
+p4 <- ggplot(clustering_data_no_premium, aes(x =  months, y =income, color = Cluster)) +
+    geom_point(alpha = 0.6) +
+    labs(title = "Clusters for non-premium customers") +
+    theme_minimal()
+
+grid.arrange(p3, p4, ncol = 2)
+```
+
+```{r}
+p1 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "1"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "blue") +
+  theme_minimal() +
+  labs(title = "Cluster 1",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p2 <- ggplot(clustering_data_no_premium, aes(x= months, y = income)) +
+  # Add background points in grey
+  geom_point(color = "grey90", alpha = 0.5) +
+  # Add cluster points in color
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "2"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "red") +
+  theme_minimal() +
+  labs(title = "Cluster 2",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+# Cluster 2
+
+
+# Cluster 3
+p3 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "3"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "green4") +
+  theme_minimal() +
+  labs(title = "Cluster 3",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p4 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "4"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "orange") +
+  theme_minimal() +
+  labs(title = "Cluster 4",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p5 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "5"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "pink") +
+  theme_minimal() +
+  labs(title = "Cluster 5",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p6 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "6"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "black") +
+  theme_minimal() +
+  labs(title = "Cluster 6",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+# Arrange plots
+grid.arrange(p1, p2, p3, p4, p5, p6, nrow = 2, ncol=3)
+```
+
+### Further visualizations for our target customer segment
+
+```{r}
+# # Create a function to calculate proportions for each cluster
+# cluster_proportions <- function(data, factor_col, cluster_nums = c("1", "3")) {
+#   data %>%
+#     filter(Cluster %in% cluster_nums) %>%
+#     group_by(Cluster) %>%
+#     summarise(
+#       ios = mean(factor_col == 1),  # proportion where device = "ios"
+#       android = mean(factor_col == 2),  # proportion where device = "android"
+#       n = n()
+#     )
+# }
+
+
+# Calculate proportions for device
+device_props <- clustering_data_no_premium %>%
+  mutate(
+    device_type = ifelse(device > 0, "ios", "android")  # Assuming ios was coded as 2 and android as 1
+  ) %>%
+  filter(Cluster %in% 1:6) %>%
+  group_by(Cluster, device_type) %>%
+  summarise(count = n()) %>%
+  group_by(Cluster) %>%
+  mutate(proportion = count / sum(count))
+
+
+# Calculate proportions for living area
+living_area_props <- clustering_data_no_premium %>%
+  mutate(
+    area_type = ifelse(living_area > 0, "rest", "urban")  # Assuming rest was coded as 2 and urban as 1
+  ) %>%
+  filter(Cluster %in% 1:6) %>%
+  group_by(Cluster, area_type) %>%
+  summarise(count = n()) %>%
+  group_by(Cluster) %>%
+  mutate(proportion = count / sum(count))
+
+
+
+
+# Create bar chart for device distribution
+p1 <- ggplot(device_props, 
+             aes(x = Cluster, y = proportion, fill = device_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  scale_fill_manual(values = c("android" = "#E41A1C", "ios" = "#4DAF4A")) +
+  labs(title = "Device Distribution by Cluster",
+       y = "Proportion",
+       fill = "Device Type") +
+  theme(legend.position = "bottom")
+
+# Create bar chart for living area distribution
+p2 <- ggplot(living_area_props, 
+             aes(x = Cluster, y = proportion, fill = area_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  theme_minimal() +
+  scale_fill_manual(values = c("urban" = "#377EB8", "rest" = "#984EA3")) +
+  labs(title = "Living Area Distribution by Cluster",
+       y = "Proportion",
+       fill = "Area Type") +
+  theme(legend.position = "bottom")
+
+# Arrange plots side by side
+grid.arrange(p1, p2, ncol = 2)
+
+```
+
+```{r}
+
+```
+
+## DBSCAN
+
+```{r}
+library(dbscan)
+
+clustering_vars <- clustering_data_no_premium %>%
+  select(income, months)
+```
+
+```{r}
+# Finding optimal eps for DB SCAN
+kNNdistplot(clustering_vars, k = 7)
+abline(h = 0.43, col = "red", lty = 2)
+```
+
+```{r}
+# Perform DBSCAN clustering
+dbscan_result <- dbscan(clustering_vars, eps = 0.43, minPts = 30)
+
+# Add cluster assignments back to original dataframe
+clustered_data <- clustering_data_no_premium %>%
+  mutate(Cluster = factor(dbscan_result$cluster),
+         Cluster = recode(Cluster, `-1` = "Outlier"))
+
+# Add cluster assignments to a copy of original data
+# clustered_data <- clustering_data_no_premium %>%
+#   mutate(Cluster = factor(dbscan_result$cluster),
+#          # Convert -1 (noise points) to "Outlier"
+#          Cluster = recode(Cluster, `-1` = "Outlier"))
+
+```
+
+```{r}
+# Create visualizations
+# 1. Main scatter plot
+p1 <- ggplot(clustered_data, aes(x = months, y =income, color = Cluster)) +
+  geom_point(size = 2, alpha = 0.6) +
+  theme_minimal() +
+  scale_color_manual(values = c("Outlier" = "grey50", 
+                               "0" = "blue", 
+                               "1" = "red")) +
+  labs(title = "DBSCAN Clusters: Months vs Income",
+       x = "months (standardized)",
+       y = "income (standardized)")
+p1
+# Arrange plots
+#grid.arrange(p1, p2, p3, ncol = 2)
+```
+
+```{r}
+p1 <- ggplot(clustered_data, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustered_data, Cluster == "0"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "blue") +
+  theme_minimal() +
+  labs(title = "Very scattered customers",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p2 <- ggplot(clustered_data, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustered_data, Cluster == "1"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "red") +
+  theme_minimal() +
+  labs(title = "New with low income",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+# p3 <- ggplot(clustered_data, aes(x = months, y = income)) +
+#   geom_point(color = "grey90", alpha = 0.5) +
+#   geom_point(data = subset(clustered_data, Cluster == "2"), 
+#              aes(color = Cluster), size = 2, alpha = 0.6) +
+#   scale_color_manual(values = "green4") +
+#   theme_minimal() +
+#   labs(title = "Medium with Medium Income",
+#        x = "Months (scaled)",
+#        y = "Income (scaled)") +
+#   theme(legend.position = "none")
+
+
+# Arrange plots
+grid.arrange(p1, p2, ncol = 2)
+```
+
+### Unscale the df
+
+```{r}
+original_df <- streaming_ds %>%
+  filter(premium == 0) %>%
+  select(stopped, age, income, premium, device, `living area`, months, `few hrs`) %>%
+  mutate(few_hrs = as.numeric(`few hrs`)) %>%
+  mutate(device = as.numeric(device)) %>%
+  mutate(living_area = as.numeric(`living area`)) %>%
+  select(-`few hrs`) %>%
+  select(-`living area`) %>%
+  select(-premium) # drop because scaling
+
+
+# Function to unscale all numeric columns while preserving Cluster
+unscale_matched <- function(scaled_data, original_data) {
+  # Create a copy of the scaled data
+  result <- scaled_data
+  
+  # List all columns except Cluster
+  cols_to_unscale <- setdiff(names(scaled_data), "Cluster")
+  
+  # Process each column
+  for(col in cols_to_unscale) {
+    # Calculate original mean and sd
+    orig_mean <- mean(original_data[[col]], na.rm = TRUE)
+    orig_sd <- sd(original_data[[col]], na.rm = TRUE)
+    
+    # Reverse the scaling: x_orig = (x_scaled * sd) + mean
+    result[[col]] <- scaled_data[[col]] * orig_sd + orig_mean
+  }
+  
+  # Round specific columns to match original structure
+  result$device <- round(result$device)
+  result$living_area <- round(result$living_area)
+  result$few_hrs <- round(result$few_hrs)
+  
+  return(result)
+}
+
+# Apply unscaling
+unscaled_result <- unscale_matched(clustered_data, original_df)
+
+# Visual comparison if scaling worked
+summary(original_df)
+summary(unscaled_result)
+
+str(unscaled_result)
+```
+
+```{r}
+unscaled_result$device <- factor(
+  unscaled_result$device,
+  levels = c(1, 2),
+  labels = c("android", "ios")
+)
+
+unscaled_result$living_area <- factor(
+  unscaled_result$living_area,
+  levels = c(1, 2),
+  labels = c("urban", "rest")
+)
+
+str(unscaled_result)
+```
+
+```{r}
+device_plot <- ggplot(unscaled_result, 
+       aes(x = Cluster, fill = device)) +
+  geom_bar(position = "fill") +
+  scale_x_discrete(labels = c("0" = "Scatterd Customers", "1" = "New low income")) +
+  scale_fill_manual(values = c("android" = "#E41A1C", "ios" = "#4DAF4A")) +
+  labs(title = "Device Distribution by Cluster",
+       y = "Proportion",
+       fill = "Device Type") +
+  theme_minimal()
+
+# Living area distribution by cluster
+area_plot <- ggplot(unscaled_result, 
+       aes(x = Cluster, fill = living_area)) +
+  geom_bar(position = "fill") +
+  scale_x_discrete(labels = c("0" = "Scatterd Customers", "1" = "New low income")) +
+  scale_fill_manual(values = c("urban" = "#377EB8", "rest" = "#984EA3")) +
+  labs(title = "Living Area Distribution by Cluster",
+       y = "Proportion",
+       fill = "Area Type") +
+  theme_minimal()
+
+# Display plots side by side
+grid.arrange(device_plot, area_plot, ncol = 2)
+```
+
+## Calculate summary statistics for target customer base
+
+```{r}
+summary_satistic_target <- unscaled_result %>%
+  group_by(Cluster) %>%
+  summarise( 
+    n_customers = n(),
+    
+    avg_stopped = mean(stopped),
+
+    avg_age = mean(age),
+
+    
+    avg_income = mean(income),
+    
+    avg_device = ifelse(round(mean(as.numeric(device)), digits = 0) > 1, "ios", "android"),
+    
+    avg_months = mean(months),
+    
+    avg_few_hrs = mean(few_hrs),
+    
+    avg_living_area = ifelse(round(mean(as.numeric(living_area)), digits = 0) > 1, "rest", "urban")
+  )  
+
+
+View(summary_satistic_target)
+```
+
+```         
+```
+
+# 5) Do the data reveal **how do the chosen customers differ** from the others?
+
+## 
+
+### 4 Predicting their likelihood of becoming premium members
+
+Having summary statistics for each of the clusters allows us to roughly estimate how likely customers within the respective clusters are to become premium members. In order to estimate the likelihood of being premium, we would like to develop a model that is able to accurately predict whether or not a customer is a premium member given certain other characteristics. To do so, we compare four different classifiers: k-nearest neighbour, naive bayes, classification tree and random forest.
+
+```{r}
+data <- streaming_ds
+
+# adjust the column names to avoid complications later on 
+colnames(data)[1] <- "fewhrs"
+colnames(data)[6] <- "livingarea"
+
+# convert target variable to a factor 
+data$premium <- factor(data$premium)
+levels(data$premium) <- c("no","yes")
+```
+
+In order to be able to evaluate our models, we divide our data into training and test data, using an 80-20 split.
+
+```{r}
+n <- nrow(data)
+n1 <- floor(0.8*n)
+train_ind <- sample(1:n, n1)
+data_train <- data[train_ind,]
+data_test <- data[-train_ind,]
+```
+
+**Naive Bayes Classifier**
+
+```{r}
+model_nb <- naiveBayes(premium ~ . , data=data_train)
+```
+
+**K-Nearest Neighbor**
+
+```{r}
+fitControl <- trainControl(method="cv", number=5) # we want to perform a 5-fold cross validation and choose k accordingly
+model_knn <- train(premium ~ . , data = data_train, method="knn", tuneGrid=data.frame(k=1:15),  trControl=fitControl, preProcess="scale")
+model_knn
+```
+
+**Decision tree**
+
+```{r, fig1, fig.height=10, fig.width=15}
+library("rpart")
+library(partykit)
+full_tree <- rpart(premium ~., data =data, control=list(cp=0))
+pruned_tree <- prune(full_tree, cp=full_tree$cptable[3, "CP"])
+plot(as.party(pruned_tree))
+
+pruned_tree <- prune(rpart(premium ~., data =data, control=list(cp=0)), cp=rpart(premium ~., data =data, control=list(cp=0))$cptable[3, "CP"])
+```
+
+```{r}
+full_tree <- rpart(premium ~., data =data, control=list(cp=0))
+rpart:plotcp(full_tree)
+```
+
+```{r}
+
+```
+
+```{r}
+full_tree$cptable[1:10,]
+```
+
+As can already be observed from the plot and the table above, when choosing CP such that we have 8 splits, we still have a very high relative error. This suggests that a much more complex tree would be necessary to classify our customers accurately. More complex trees do, however, come at the cost of much higher variance, meaning that small changes in the training data can lead to large changes in the tree structure. Furthermore, we would loose the advantage of interpretability that decision trees have as compared to other classifiers.
+
+**Random Forest**
+
+We therefore also fit a random forest to our data.
+
+```{r}
+randomforest <- ranger(premium~., data=data_train, probability=TRUE, importance="permutation")
+print(randomforest)
+```
+
+*Variable importance*
+
+We would like to better understand how our random forest classifies by visualizing the importance of variables within our random forest.
+
+```{r}
+plot(as.table(importance(randomforest)), ylab="Importance")
+```
+
+**Model comparison**
+
+*Measuring Performance*
+
+```{r}
+yhat_tree <- predict(pruned_tree, newdata=data_test, type="class")
+yhat_rf <- as.numeric((predict(randomforest, data=data_test)$predictions >0.5)[,2])
+yhat_knn <- predict(model_knn, newdata=data_test)
+yhat_nb <- predict(model_nb, newdata=data_test)
+tab1 <- table(predicted_tree=yhat_tree, observations=data_test$premium)
+tab2 <- table(predicted_rf=yhat_rf, observations=data_test$premium)
+tab3 <- table(predicted_knn=yhat_knn, observations=data_test$premium)
+tab4 <- table(predicted_nB=yhat_nb, observations=data_test$premium)
+```
+
+```{r}
+acc1 <- (tab1[1,1]+tab1[2,2])/sum(tab1)
+acc3 <- (tab2[1,1]+tab2[2,2])/sum(tab2)
+acc3 <- (tab3[1,1]+tab3[2,2])/sum(tab3)
+acc4 <- (tab4[1,1]+tab4[2,2])/sum(tab4)
+
+rec1 <- tab1[2,2]/sum(tab1[,2])
+rec2 <- tab2[2,2]/sum(tab2[,2])
+rec3 <- tab3[2,2]/sum(tab3[,2])
+rec4 <- tab4[2,2]/sum(tab4[,2])
+
+prec1 <- tab1[2,2]/sum(tab1[2,])
+prec2 <- tab2[2,2]/sum(tab2[2,])
+prec3 <- tab3[2,2]/sum(tab3[2,])
+prec4 <- tab4[2,2]/sum(tab4[2,])
+
+evaluation <- data.frame(
+ Model = c("Tree", "Random Forest",
+ "Model kNN", "Model Naive Bayes"),
+ accuracy = c(acc1, acc2, acc3, acc4),
+ recall = c(rec1, rec2, rec3, rec4),
+ precision = c(prec1, prec2, prec3, prec4)
+ )
+
+evaluation
+```
+
+We have a closer look at how the data was classified.
+
+```{r}
+tab3
+```
+
+*10-Fold Cross Validation*
+
+```{r}
+n <- nrow(data)
+fold <- 10
+folds <- sample(rep(1:fold, ceiling(n/fold)),n)
+```
+
+```{r}
+brier <- list()
+
+for (tfold in seq_len(fold)){
+  
+  train_idx <- which(folds != tfold)
+  test_idx <- which(folds == tfold)
+  
+  # fit the models to the respective training data
+  
+  rf <- ranger(premium ~., data=data[train_idx,], probability=TRUE)
+  tree <- prune(rpart(premium ~., data =data[train_idx,], control=list(cp=0)), cp=rpart(premium ~., data =data, control=list(cp=0))$cptable[3, "CP"])
+  nb <- naiveBayes(premium ~ . , data=data[train_idx,])
+  knn <- train(premium ~ . , data = data[train_idx,], method="knn", tuneGrid=data.frame(k=1:15),  trControl=fitControl, preProcess="scale")
+
+  p_rf <- predict(rf, data=data[test_idx,])$predictions[,2]
+  p_tree <- predict(tree, newdata=data[test_idx,])[,2]
+  p_nb <- predict(nb, newdata=data[test_idx,], type="raw")[,2]
+  p_knn <- predict(knn, newdata=data[test_idx,], type="prob")[,2]
+  
+  brier[[tfold]] <- unlist(lapply(
+    list(rf=p_rf, tree=p_tree, nb=p_nb, knn=p_knn), \(predicted){
+      mean((as.numeric(data[test_idx,"premium"]=="yes")-predicted)^2)
+    }
+  ))
+}
+```
+
+```{r}
+boxplot(do.call("rbind", brier), ylab="Cross-validated Brier score")
+```
+
+We come to the conclusion that we are able to provide the most accurate prediction when using our knn-classifer.
+
+**Prediction the likelihood of our average target customer**
+
+```{r}
+cluster_data <- summary_satistic_target
+summary_satistic_target
+```
+
+```{r}
+colnames(cluster_data) <- c("Cluster", "n_customers","stopped", "age", "income", "device", "months", "fewhrs", "livingarea")
+cluster_data$fewhrs <- (cluster_data$fewhrs)>0.5
+cluster_data$fewhrs <- factor(cluster_data$fewhrs)
+```
+
+```{r}
+
+```
+
+Using the random forest we are able to compute how likely the average customer of our two targeted clusters is to buy a premium membership.
+
+```{r}
+#predict(model_knn,newdata=cluster_data[,-c(1,2)], type="prob")
+as.data.frame(predict(randomforest, data=cluster_data[,-c(1,2)])$prediction)
+```
