@@ -30,91 +30,11 @@ set.seed(1234)
 
 ```{r}
 load("Group1_streaming_ds.rda")
-head(streaming_ds)
-str(streaming_ds)
-summary(streaming_ds)
-
-streaming_ds["few hrs"] <- as.factor(streaming_ds$`few hrs`) # change column from boolean to factor 
 ```
 
-# 2. **Identify the relevant variables** that would help you to segment/cluster/classify the users/customers and justify your choice. 
+# 2. **Identify the relevant variables** that would help you to segment/cluster/classify the users/customers and justify your choice.
 
-## Correlation Matrix
-
-```{r}
-streaming_only_num <- streaming_ds[sapply(streaming_ds, is.numeric)] # only get columns that are numberic
-
-ggcorrplot(cor(streaming_only_num),
-           lab = TRUE,               # Show correlation values
-           lab_size = 3,             # Fix text size
-           digits = 2,               # Number of decimal places
-           method = "square")       # Square cells
-```
-
-No strong correlation for any of the numeric data points. However we have a few combinations which might be intersting to investigate further. Mainly: Income\~Age; Months\~Age (kind of obvious); Months\~Stopped
-
-### Quick Viz for Columns against each other
-
-```{r}
-pairs(streaming_ds)
-```
-
-## Scatter plot for Income and age
-
-```{r}
-Age_income <- ggplot(streaming_ds, aes(x= age, y= income)) + 
-  geom_point() + 
-  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85))
-
-
-Months_age <- ggplot(streaming_ds, aes(x= age, y= months)) + 
-  geom_point() + 
-  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85))
-
-Months_stopped <- ggplot(streaming_ds, aes(x= months, y= stopped)) + 
-  geom_point() + 
-  scale_x_continuous(breaks= c(6, 12, 18, 24, 30, 36, 42))
-
-Age_stopped <- ggplot(streaming_ds, aes(x=age, y = stopped)) + 
-  geom_point() + 
-  scale_x_continuous(breaks = c(0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85))
-
-
-ggarrange(Age_income, Months_age, Months_stopped, Age_stopped, labels = c("Age ~ Income", "Months ~ Age", "Stopped ~ Months", "Age ~ stopped"), font.label = list(size=10), col= 1, nrow = 4)
-```
-
-Note: From the Months \~ Age plot it seem like Age and Months are not both describing the Age of the User, since this would mean a linear relationship
-
--\> Months is maybe the time of the subscription
-
-### Income and Stopped
-
-hallo
-
-```{r}
-ggplot(streaming_ds, aes(income, stopped)) +
-  geom_point()
-```
-
-## Using a decision tree
-
-### Pruning
-
-```{r}
-full_tree <- rpart(stopped ~. , data= streaming_ds, control = list(cp=0.001))
-
-printcp(full_tree)
-rpart::plotcp(full_tree)
-```
-
-### Pruned tree
-
-From the decision tree it seems that the most important variables are the few_hrs, months, and age.
-
-```{r}
-pruned_tree <- prune(full_tree, cp = full_tree$cptable[5, "CP"])
-plot(as.party(pruned_tree))
-```
+### 
 
 # 3) **Test** several models and **compare** them. **Consider the best approach** for your problem - clustering, classification, anything else?
 
@@ -127,11 +47,7 @@ Logistic Regression
 -\> Clustering to find likely customers that are not yet premium
 
 ```{r}
-
-```
-
-```{r}
-clustering_data <- streaming_ds %>%
+clustering_data  <- streaming_ds %>%
   select(stopped, age, income, premium, device, `living area`, months, `few hrs`) %>% 
   mutate(few_hrs = as.numeric(`few hrs`)) %>%
   mutate(device = as.numeric(device)) %>%
@@ -157,6 +73,35 @@ clustering_data_no_premium <- streaming_ds %>%
 
 str(clustering_data)
 str(clustering_data_no_premium)
+```
+
+### Define a function to unscale the data frame at a later point
+
+```{r}
+# 
+# unscale <- function(scaled_data, original_data) {
+#   # Get column names from scaled data
+#   scaled_cols <- colnames(scaled_data)
+#   
+#   # Initialize result dataframe
+#   unscaled_data <- scaled_data
+#   
+#   # Process each column
+#   for(col in scaled_cols) {
+#     if(col %in% colnames(original_data)) {  # Check if column exists in original data
+#       # Calculate original mean and sd
+#       orig_mean <- mean(original_data[[col]], na.rm = TRUE)
+#       orig_sd <- sd(original_data[[col]], na.rm = TRUE)
+#       
+#       # Reverse the scaling: x_orig = (x_scaled * sd) + mean
+#       unscaled_data[[col]] <- scaled_data[[col]] * orig_sd + orig_mean
+#     }
+#   }
+#   
+#   return(unscaled_data)
+# }
+# 
+# df2 <- unscale(unscaled_clustered_data, original_df)
 ```
 
 ### Getting number of clusters using the elbow method
@@ -207,8 +152,8 @@ We decide to proceed with 4 clusters as the Plot shows a steep decline till the 
 ### Performing the k-means clustering
 
 ```{r}
-kmeans_full <- kmeans(clustering_data, centers = 4, nstart = 10)
-kmeans_no_premium <- kmeans(clustering_data_no_premium, centers = 3, nstart = 10)
+kmeans_full <- kmeans(clustering_data, centers = 5, nstart = 10)
+kmeans_no_premium <- kmeans(clustering_data_no_premium, centers = 6, nstart = 10)
 
 
 clustering_data$Cluster <- as.factor(kmeans_full$cluster)
@@ -216,13 +161,13 @@ clustering_data_no_premium$Cluster <- as.factor(kmeans_no_premium$cluster)
 ```
 
 ```{r}
-p3 <- ggplot(clustering_data, aes(x = income, y = months, color = Cluster)) +
+p3 <- ggplot(clustering_data, aes(x = months, y =income , color = Cluster)) +
     geom_point(alpha = 0.6) +
     labs(title = "Clusters for full customer base") +
     theme_minimal()
 
 
-p4 <- ggplot(clustering_data_no_premium, aes(x = income, y = months, color = Cluster)) +
+p4 <- ggplot(clustering_data_no_premium, aes(x =  months, y =income, color = Cluster)) +
     geom_point(alpha = 0.6) +
     labs(title = "Clusters for non-premium customers") +
     theme_minimal()
@@ -233,11 +178,11 @@ grid.arrange(p3, p4, ncol = 2)
 ```{r}
 p1 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
   geom_point(color = "grey90", alpha = 0.5) +
-  geom_point(data = subset(clustering_data_no_premium, Cluster == "2"), 
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "1"), 
              aes(color = Cluster), size = 2, alpha = 0.6) +
   scale_color_manual(values = "blue") +
   theme_minimal() +
-  labs(title = "New with low income",
+  labs(title = "Cluster 1",
        x = "Months (scaled)",
        y = "Income (scaled)") +
   theme(legend.position = "none")
@@ -247,11 +192,11 @@ p2 <- ggplot(clustering_data_no_premium, aes(x= months, y = income)) +
   # Add background points in grey
   geom_point(color = "grey90", alpha = 0.5) +
   # Add cluster points in color
-  geom_point(data = subset(clustering_data_no_premium, Cluster == "1"), 
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "2"), 
              aes(color = Cluster), size = 2, alpha = 0.6) +
   scale_color_manual(values = "red") +
   theme_minimal() +
-  labs(title = "Medium with medium income",
+  labs(title = "Cluster 2",
        x = "Months (scaled)",
        y = "Income (scaled)") +
   theme(legend.position = "none")
@@ -266,29 +211,65 @@ p3 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
              aes(color = Cluster), size = 2, alpha = 0.6) +
   scale_color_manual(values = "green4") +
   theme_minimal() +
-  labs(title = "New with high income",
+  labs(title = "Cluster 3",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p4 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "4"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "orange") +
+  theme_minimal() +
+  labs(title = "Cluster 4",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p5 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "5"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "pink") +
+  theme_minimal() +
+  labs(title = "Cluster 5",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p6 <- ggplot(clustering_data_no_premium, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustering_data_no_premium, Cluster == "6"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "black") +
+  theme_minimal() +
+  labs(title = "Cluster 6",
        x = "Months (scaled)",
        y = "Income (scaled)") +
   theme(legend.position = "none")
 
 # Arrange plots
-grid.arrange(p1, p2, p3, ncol = 3)
+grid.arrange(p1, p2, p3, p4, p5, p6, nrow = 2, ncol=3)
 ```
 
-### Further visualisations for our target customer segment
+### Further visualizations for our target customer segment
 
 ```{r}
-# Create a function to calculate proportions for each cluster
-cluster_proportions <- function(data, factor_col, cluster_nums = c("1", "3")) {
-  data %>%
-    filter(Cluster %in% cluster_nums) %>%
-    group_by(Cluster) %>%
-    summarise(
-      ios = mean(factor_col == 1),  # proportion where device = "ios"
-      android = mean(factor_col == 2),  # proportion where device = "android"
-      n = n()
-    )
-}
+# # Create a function to calculate proportions for each cluster
+# cluster_proportions <- function(data, factor_col, cluster_nums = c("1", "3")) {
+#   data %>%
+#     filter(Cluster %in% cluster_nums) %>%
+#     group_by(Cluster) %>%
+#     summarise(
+#       ios = mean(factor_col == 1),  # proportion where device = "ios"
+#       android = mean(factor_col == 2),  # proportion where device = "android"
+#       n = n()
+#     )
+# }
 
 
 # Calculate proportions for device
@@ -296,28 +277,31 @@ device_props <- clustering_data_no_premium %>%
   mutate(
     device_type = ifelse(device > 0, "ios", "android")  # Assuming ios was coded as 2 and android as 1
   ) %>%
-  filter(Cluster %in% c("1", "3")) %>%
+  filter(Cluster %in% 1:6) %>%
   group_by(Cluster, device_type) %>%
   summarise(count = n()) %>%
   group_by(Cluster) %>%
   mutate(proportion = count / sum(count))
+
 
 # Calculate proportions for living area
 living_area_props <- clustering_data_no_premium %>%
   mutate(
     area_type = ifelse(living_area > 0, "rest", "urban")  # Assuming rest was coded as 2 and urban as 1
   ) %>%
-  filter(Cluster %in% c("1", "3")) %>%
+  filter(Cluster %in% 1:6) %>%
   group_by(Cluster, area_type) %>%
   summarise(count = n()) %>%
   group_by(Cluster) %>%
   mutate(proportion = count / sum(count))
 
+
+
+
 # Create bar chart for device distribution
 p1 <- ggplot(device_props, 
              aes(x = Cluster, y = proportion, fill = device_type)) +
   geom_bar(stat = "identity", position = "dodge") +
-  scale_x_discrete(labels = c("1" = "Medium", "3" = "High Income")) +
   theme_minimal() +
   scale_fill_manual(values = c("android" = "#E41A1C", "ios" = "#4DAF4A")) +
   labs(title = "Device Distribution by Cluster",
@@ -329,7 +313,6 @@ p1 <- ggplot(device_props,
 p2 <- ggplot(living_area_props, 
              aes(x = Cluster, y = proportion, fill = area_type)) +
   geom_bar(stat = "identity", position = "dodge") +
-  scale_x_discrete(labels = c("1" = "Medium", "3" = "High Income")) +
   theme_minimal() +
   scale_fill_manual(values = c("urban" = "#377EB8", "rest" = "#984EA3")) +
   labs(title = "Living Area Distribution by Cluster",
@@ -342,16 +325,9 @@ grid.arrange(p1, p2, ncol = 2)
 
 ```
 
-## K means for income and stopped
-
 ```{r}
-ggplot(clustering_data_no_premium, aes(x = income, y = stopped, color = Cluster)) +
-    geom_point(alpha = 0.6) +
-    labs(title = "Clusters for non-premium customers") +
-    theme_minimal()
-```
 
-The visualization shows us that the customers from the blue cluster are the ones with the most stopped streams. Green and Red clusters on the hand have relative low numbers of stopped streams with a maximum of 3 stopped streams.
+```
 
 ## DBSCAN
 
@@ -359,50 +335,210 @@ The visualization shows us that the customers from the blue cluster are the ones
 library(dbscan)
 
 clustering_vars <- clustering_data_no_premium %>%
-  select(income, stopped)
+  select(income, months)
 ```
 
 ```{r}
 # Finding optimal eps for DB SCAN
 kNNdistplot(clustering_vars, k = 7)
-abline(h = 0.14, col = "red", lty = 2)
-```
-
-```{r}
-ggplot(clustering_vars, aes(x = income, y= stopped))+ 
-  geom_point()
+abline(h = 0.43, col = "red", lty = 2)
 ```
 
 ```{r}
 # Perform DBSCAN clustering
-dbscan_result <- dbscan(clustering_vars, eps = 0.3, minPts = 4)
+dbscan_result <- dbscan(clustering_vars, eps = 0.43, minPts = 30)
 
-# Add cluster assignments to a copy of original data
+# Add cluster assignments back to original dataframe
 clustered_data <- clustering_data_no_premium %>%
   mutate(Cluster = factor(dbscan_result$cluster),
-         # Convert -1 (noise points) to "Outlier"
          Cluster = recode(Cluster, `-1` = "Outlier"))
+
+# Add cluster assignments to a copy of original data
+# clustered_data <- clustering_data_no_premium %>%
+#   mutate(Cluster = factor(dbscan_result$cluster),
+#          # Convert -1 (noise points) to "Outlier"
+#          Cluster = recode(Cluster, `-1` = "Outlier"))
 
 ```
 
 ```{r}
 # Create visualizations
 # 1. Main scatter plot
-p1 <- ggplot(clustered_data, aes(x = income, y = stopped, color = Cluster)) +
+p1 <- ggplot(clustered_data, aes(x = months, y =income, color = Cluster)) +
   geom_point(size = 2, alpha = 0.6) +
   theme_minimal() +
   scale_color_manual(values = c("Outlier" = "grey50", 
-                               "0" = "#E41A1C", 
-                               "1" = "#377EB8", 
-                               "2" = "#4DAF4A",
-                               "3" = "#984EA3")) +
-  labs(title = "DBSCAN Clusters: Age vs Income",
-       subtitle = paste("eps =", 0.5, ", minPts = 4"),
-       x = "income (standardized)",
-       y = "stopped (standardized)")
+                               "0" = "blue", 
+                               "1" = "red")) +
+  labs(title = "DBSCAN Clusters: Months vs Income",
+       x = "months (standardized)",
+       y = "income (standardized)")
 p1
 # Arrange plots
 #grid.arrange(p1, p2, p3, ncol = 2)
+```
+
+```{r}
+p1 <- ggplot(clustered_data, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustered_data, Cluster == "0"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "blue") +
+  theme_minimal() +
+  labs(title = "Very scattered customers",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+
+p2 <- ggplot(clustered_data, aes(x = months, y = income)) +
+  geom_point(color = "grey90", alpha = 0.5) +
+  geom_point(data = subset(clustered_data, Cluster == "1"), 
+             aes(color = Cluster), size = 2, alpha = 0.6) +
+  scale_color_manual(values = "red") +
+  theme_minimal() +
+  labs(title = "New with low income",
+       x = "Months (scaled)",
+       y = "Income (scaled)") +
+  theme(legend.position = "none")
+
+# p3 <- ggplot(clustered_data, aes(x = months, y = income)) +
+#   geom_point(color = "grey90", alpha = 0.5) +
+#   geom_point(data = subset(clustered_data, Cluster == "2"), 
+#              aes(color = Cluster), size = 2, alpha = 0.6) +
+#   scale_color_manual(values = "green4") +
+#   theme_minimal() +
+#   labs(title = "Medium with Medium Income",
+#        x = "Months (scaled)",
+#        y = "Income (scaled)") +
+#   theme(legend.position = "none")
+
+
+# Arrange plots
+grid.arrange(p1, p2, ncol = 2)
+```
+
+### Unscale the df
+
+```{r}
+original_df <- streaming_ds %>%
+  filter(premium == 0) %>%
+  select(stopped, age, income, premium, device, `living area`, months, `few hrs`) %>%
+  mutate(few_hrs = as.numeric(`few hrs`)) %>%
+  mutate(device = as.numeric(device)) %>%
+  mutate(living_area = as.numeric(`living area`)) %>%
+  select(-`few hrs`) %>%
+  select(-`living area`) %>%
+  select(-premium) # drop because scaling
+
+
+# Function to unscale all numeric columns while preserving Cluster
+unscale_matched <- function(scaled_data, original_data) {
+  # Create a copy of the scaled data
+  result <- scaled_data
+  
+  # List all columns except Cluster
+  cols_to_unscale <- setdiff(names(scaled_data), "Cluster")
+  
+  # Process each column
+  for(col in cols_to_unscale) {
+    # Calculate original mean and sd
+    orig_mean <- mean(original_data[[col]], na.rm = TRUE)
+    orig_sd <- sd(original_data[[col]], na.rm = TRUE)
+    
+    # Reverse the scaling: x_orig = (x_scaled * sd) + mean
+    result[[col]] <- scaled_data[[col]] * orig_sd + orig_mean
+  }
+  
+  # Round specific columns to match original structure
+  result$device <- round(result$device)
+  result$living_area <- round(result$living_area)
+  result$few_hrs <- round(result$few_hrs)
+  
+  return(result)
+}
+
+# Apply unscaling
+unscaled_result <- unscale_matched(clustered_data, original_df)
+
+# Visual comparison if scaling worked
+summary(original_df)
+summary(unscaled_result)
+
+str(unscaled_result)
+```
+
+```{r}
+unscaled_result$device <- factor(
+  unscaled_result$device,
+  levels = c(1, 2),
+  labels = c("android", "ios")
+)
+
+unscaled_result$living_area <- factor(
+  unscaled_result$living_area,
+  levels = c(1, 2),
+  labels = c("urban", "rest")
+)
+
+str(unscaled_result)
+```
+
+```{r}
+device_plot <- ggplot(unscaled_result, 
+       aes(x = Cluster, fill = device)) +
+  geom_bar(position = "fill") +
+  scale_x_discrete(labels = c("0" = "Scatterd Customers", "1" = "New low income")) +
+  scale_fill_manual(values = c("android" = "#E41A1C", "ios" = "#4DAF4A")) +
+  labs(title = "Device Distribution by Cluster",
+       y = "Proportion",
+       fill = "Device Type") +
+  theme_minimal()
+
+# Living area distribution by cluster
+area_plot <- ggplot(unscaled_result, 
+       aes(x = Cluster, fill = living_area)) +
+  geom_bar(position = "fill") +
+  scale_x_discrete(labels = c("0" = "Scatterd Customers", "1" = "New low income")) +
+  scale_fill_manual(values = c("urban" = "#377EB8", "rest" = "#984EA3")) +
+  labs(title = "Living Area Distribution by Cluster",
+       y = "Proportion",
+       fill = "Area Type") +
+  theme_minimal()
+
+# Display plots side by side
+grid.arrange(device_plot, area_plot, ncol = 2)
+```
+
+## Calculate summary statistics for target customer base
+
+```{r}
+summary_satistic_target <- unscaled_result %>%
+  group_by(Cluster) %>%
+  summarise( 
+    n_customers = n(),
+    
+    avg_stopped = mean(stopped),
+
+    avg_age = mean(age),
+
+    
+    avg_income = mean(income),
+    
+    avg_device = ifelse(round(mean(as.numeric(device)), digits = 0) > 1, "ios", "android"),
+    
+    avg_months = mean(months),
+    
+    avg_few_hrs = mean(few_hrs),
+    
+    avg_living_area = ifelse(round(mean(as.numeric(living_area)), digits = 0) > 1, "rest", "urban")
+  )  
+
+
+View(summary_satistic_target)
+```
+
+```         
 ```
 
 # 5) Do the data reveal **how do the chosen customers differ** from the others?

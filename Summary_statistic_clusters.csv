@@ -1,0 +1,3 @@
+"","Cluster","n_customers","avg_stopped","avg_age","avg_income","avg_device","avg_months","few_hrs","avg_living_area"
+"1","0",177,1,39,5.5419,"ios",15,FALSE,"urban"
+"2","1",1408,0,32,2.6567,"android",4,FALSE,"urban"
