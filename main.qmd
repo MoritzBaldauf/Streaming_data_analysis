@@ -131,23 +131,23 @@ clustering_data <- streaming_ds %>%
   select(stopped, age, income, premium, months, `few hrs`) %>% # select relvant columns for sub df
   mutate(few_hrs = as.numeric(`few hrs`)) %>% # transform few hrs to numeric 
   select(-`few hrs`) %>% # remove old few hrs column 
-  scale() # scale for clustering
-
-clustering_data <- as.data.frame(clustering_data)
+  scale() %>% # scale for clustering
+  as.data.frame(clustering_data) %>%
+  `colnames<-`(c("stopped", "age", "income", "premium", "months", "few_hrs"))  # Assign column names
 
 
 str(clustering_data)
 ```
 
 ```{r}
-kmeans_results <- kmeans(clustering_data, centers = 3, nstart = 10)
+kmeans_results <- kmeans(clustering_data, centers = 2, nstart = 10)
 
 clustering_df$Cluster <- as.factor(kmeans_results$cluster)
 
 ```
 
 ```{r}
-p2 <- ggplot(clustering_df, aes(x = income, y = months , color = Cluster)) +
+p2 <- ggplot(clustering_df, aes(x = income, y=months, color = Cluster)) +
   geom_point(alpha = 0.6) +
   theme_minimal() +
   labs(title = "Clusters: Months vs Income")
@@ -157,7 +157,6 @@ p3 <- ggplot(clustering_df, aes(x = age, y = income, color = Cluster)) +
   theme_minimal() +
   labs(title = "Clusters: Age vs Income")
 
-p2
 ```
 
 ```{r}
